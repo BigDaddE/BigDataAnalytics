@@ -100,20 +100,17 @@ class CloneDetector {
 	}
 
 	#expandCloneCandidates(file) {
-		// TODO
-		// For each Clone in file.instances, try to expand it with every other Clone
-		// (using Clone::maybeExpandWith(), which returns true if it could expand)
-		//
-		// Comment: This should be doable with a reduce:
-		//          For every new element, check if it overlaps any element in the accumulator.
-		//          If it does, expand the element in the accumulator. If it doesn't, add it to the accumulator.
-		//
-		// ASSUME: As long as you traverse the array file.instances in the "normal" order, only forward expansion is necessary.
-		//
-		// Return: file, with file.instances only including Clones that have been expanded as much as they can,
-		//         and not any of the Clones used during that expansion.
-		//
+		file.instances = file.instances.reduce((accumulator, clone) => {
+			const expanded = accumulator.find((element) =>
+				element.maybeExpandWith(clone),
+			);
 
+			if (!expanded) {
+				accumulator.push(clone);
+			}
+
+			return accumulator;
+		}, []);
 		return file;
 	}
 

@@ -9,40 +9,85 @@ const CloneDetector = require('./CloneDetector');
 const CloneStorage = require('./CloneStorage');
 const FileStorage = require('./FileStorage');
 
+// List to store all total processing times in µs
+let allTimers = [];
 
 // Express and Formidable stuff to receice a file for further processing
 // --------------------
-const form = formidable({multiples:false});
+const form = formidable({ multiples: false });
 
-app.post('/', fileReceiver );
+app.post('/', fileReceiver);
 function fileReceiver(req, res, next) {
     form.parse(req, (err, fields, files) => {
         fs.readFile(files.data.filepath, { encoding: 'utf8' })
-            .then( data => { return processFile(fields.name, data); });
+            .then(data => processFile(fields.name, data));
     });
     return res.end('');
 }
 
-app.get('/', viewClones );
+// Page for viewing clones
+app.get('/', viewClones);
 
-const server = app.listen(PORT, () => { console.log('Listening for files on port', PORT); });
+// NEW: Page for viewing timing statistics (from TODO comment in code)
+app.get('/timers', (req, res) => {
+    if (allTimers.length === 0) {
+        return res.send('<h1>No timer data yet</h1><p><a href="/">Back to main page</a></p>');
+    }
 
+    const avgAll = allTimers.reduce((a, b) => a + b, 0) / allTimers.length;
+    const last10 = allTimers.slice(-10);
+    const last100 = allTimers.slice(-100);
+    const last1000 = allTimers.slice(-1000);
+
+    const avg10 = last10.reduce((a, b) => a + b, 0) / last10.length;
+    const avg100 = last100.reduce((a, b) => a + b, 0) / last100.length;
+    const avg1000 = last1000.reduce((a, b) => a + b, 0) / last1000.length;
+
+    const last10List = last10
+        .map((t, i) => `<li>File ${allTimers.length - 10 + i + 1}: ${t.toFixed(1)} µs</li>`)
+        .join('');
+
+    let page = `
+        <html>
+        <head><title>Processing Time Statistics</title></head>
+        <body>
+            <h1>Processing Time Statistics</h1>
+            <p><b>Total files processed:</b> ${allTimers.length}</p>
+            <p><b>Average (all):</b> ${avgAll.toFixed(2)} µs</p>
+            <p><b>Average (last 10):</b> ${avg10.toFixed(2)} µs</p>
+            <p><b>Average (last 100):</b> ${avg100.toFixed(2)} µs</p>
+            <p><b>Average (last 1000):</b> ${avg1000.toFixed(2)} µs</p>
+
+            <h3>Last 10 files:</h3>
+            <ul>${last10List}</ul>
+
+            <p><a href="/">Back to main page</a></p>
+        </body>
+        </html>
+    `;
+
+    res.send(page);
+});
+
+const server = app.listen(PORT, () => {
+    console.log('Listening for files on port', PORT);
+});
 
 // Page generation for viewing current progress
 // --------------------
 function getStatistics() {
     let cloneStore = CloneStorage.getInstance();
     let fileStore = FileStorage.getInstance();
-    let output = 'Processed ' + fileStore.numberOfFiles + ' files containing ' + cloneStore.numberOfClones + ' clones.'
+    let output = 'Processed ' + fileStore.numberOfFiles + ' files containing ' + cloneStore.numberOfClones + ' clones.';
     return output;
 }
 
 function lastFileTimersHTML() {
     if (!lastFile) return '';
-    output = '<p>Timers for last file processed:</p>\n<ul>\n'
+    output = '<p>Timers for last file processed:</p>\n<ul>\n';
     let timers = Timer.getTimers(lastFile);
     for (t in timers) {
-        output += '<li>' + t + ': ' + (timers[t] / (1000n)) + ' µs\n'
+        output += '<li>' + t + ': ' + (timers[t] / (1000n)) + ' µs\n';
     }
     output += '</ul>\n';
     return output;
@@ -52,15 +97,15 @@ function listClonesHTML() {
     let cloneStore = CloneStorage.getInstance();
     let output = '';
 
-    cloneStore.clones.forEach( clone => {
+    cloneStore.clones.forEach(clone => {
         output += '<hr>\n';
         output += '<h2>Source File: ' + clone.sourceName + '</h2>\n';
         output += '<p>Starting at line: ' + clone.sourceStart + ' , ending at line: ' + clone.sourceEnd + '</p>\n';
         output += '<ul>';
-        clone.targets.forEach( target => {
-            output += '<li>Found in ' + target.name + ' starting at line ' + target.startLine + '\n';            
+        clone.targets.forEach(target => {
+            output += '<li>Found in ' + target.name + ' starting at line ' + target.startLine + '\n';
         });
-        output += '</ul>\n'
+        output += '</ul>\n';
         output += '<h3>Contents:</h3>\n<pre><code>\n';
         output += clone.originalCode;
         output += '</code></pre>\n';
@@ -71,7 +116,7 @@ function listClonesHTML() {
 
 function listProcessedFilesHTML() {
     let fs = FileStorage.getInstance();
-    let output = '<HR>\n<H2>Processed Files</H2>\n'
+    let output = '<HR>\n<H2>Processed Files</H2>\n';
     output += fs.filenames.reduce( (out, name) => {
         out += '<li>' + name + '\n';
         return out;
@@ -81,10 +126,11 @@ function listProcessedFilesHTML() {
 }
 
 function viewClones(req, res, next) {
-    let page='<HTML><HEAD><TITLE>CodeStream Clone Detector</TITLE></HEAD>\n';
+    let page = '<HTML><HEAD><TITLE>CodeStream Clone Detector</TITLE></HEAD>\n';
     page += '<BODY><H1>CodeStream Clone Detector</H1>\n';
     page += '<P>' + getStatistics() + '</P>\n';
     page += lastFileTimersHTML() + '\n';
+    page += '<p><a href="/timers">View detailed timing statistics</a></p>\n';
     page += listClonesHTML() + '\n';
     page += listProcessedFilesHTML() + '\n';
     page += '</BODY></HTML>';
@@ -108,12 +154,19 @@ const URL = process.env.URL || 'http://localhost:8080/';
 var lastFile = null;
 
 function maybePrintStatistics(file, cloneDetector, cloneStore) {
+    if (!file) return file;
+
+    let timers = Timer.getTimers(file);
+    if (timers && timers.total) {
+        allTimers.push(Number(timers.total / 1000n)); // µs till vanlig siffra
+        if (allTimers.length > 10000) allTimers.shift(); // håll listan max 10k lång
+    }
+
     if (0 == cloneDetector.numberOfProcessedFiles % STATS_FREQ) {
         console.log('Processed', cloneDetector.numberOfProcessedFiles, 'files and found', cloneStore.numberOfClones, 'clones.');
-        let timers = Timer.getTimers(file);
         let str = 'Timers for last file processed: ';
         for (t in timers) {
-            str += t + ': ' + (timers[t] / (1000n)) + ' µs '
+            str += t + ': ' + (timers[t] / (1000n)) + ' µs ';
         }
         console.log(str);
         console.log('List of found clones available at', URL);
@@ -130,24 +183,24 @@ function processFile(filename, contents) {
 
     return Promise.resolve({name: filename, contents: contents} )
         //.then( PASS( (file) => console.log('Processing file:', file.name) ))
-        .then( (file) => Timer.startTimer(file, 'total') )
-        .then( (file) => cd.preprocess(file) )
-        .then( (file) => cd.transform(file) )
+        .then(file => Timer.startTimer(file, 'total'))
+        .then(file => cd.preprocess(file))
+        .then(file => cd.transform(file))
 
-        .then( (file) => Timer.startTimer(file, 'match') )
-        .then( (file) => cd.matchDetect(file) )
-        .then( (file) => cloneStore.storeClones(file) )
-        .then( (file) => Timer.endTimer(file, 'match') )
+        .then(file => Timer.startTimer(file, 'match'))
+        .then(file => cd.matchDetect(file))
+        .then(file => cloneStore.storeClones(file))
+        .then(file => Timer.endTimer(file, 'match'))
 
-        .then( (file) => cd.storeFile(file) )
-        .then( (file) => Timer.endTimer(file, 'total') )
-        .then( PASS( (file) => lastFile = file ))
-        .then( PASS( (file) => maybePrintStatistics(file, cd, cloneStore) ))
+        .then(file => cd.storeFile(file))
+        .then(file => Timer.endTimer(file, 'total'))
+        .then(PASS(file => (lastFile = file)))
+        .then(PASS(file => maybePrintStatistics(file, cd, cloneStore)))
     // TODO Store the timers from every file (or every 10th file), create a new landing page /timers
     // and display more in depth statistics there. Examples include:
     // average times per file, average times per last 100 files, last 1000 files.
     // Perhaps throw in a graph over all files.
-        .catch( console.log );
+        .catch(console.log);
 };
 
 /*

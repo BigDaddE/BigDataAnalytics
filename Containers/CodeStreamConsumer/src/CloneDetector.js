@@ -118,18 +118,17 @@ class CloneDetector {
 	}
 
 	#consolidateClones(file) {
-		// TODO
-		// For each clone, accumulate it into an array if it is new
-		// If it isn't new, update the existing clone to include this one too
-		// using Clone::addTarget()
-		//
-		// TIP 1: Array.reduce() with an empty array as start value.
-		//        Push not-seen-before clones into the accumulator
-		// TIP 2: There should only be one match in the accumulator
-		//        so Array.find() and Clone::equals() will do nicely.
-		//
-		// Return: file, with file.instances containing unique Clone objects that may contain several targets
-		//
+		file.instances = file.instances.reduce((accumulator, clone) => {
+			const match = accumulator.find((element) => element.equals(clone));
+
+			if (match) {
+				match.addTarget(clone);
+			} else {
+				accumulator.push(clone);
+			}
+
+			return accumulator;
+		}, []);
 
 		return file;
 	}

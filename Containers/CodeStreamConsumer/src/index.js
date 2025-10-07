@@ -9,6 +9,9 @@ const CloneDetector = require("./CloneDetector");
 const CloneStorage = require("./CloneStorage");
 const FileStorage = require("./FileStorage");
 
+// List to store all total processing times in µs
+let allTimers = [];
+
 // Express and Formidable stuff to receice a file for further processing
 // --------------------
 const form = formidable({ multiples: false });
@@ -16,14 +19,61 @@ const form = formidable({ multiples: false });
 app.post("/", fileReceiver);
 function fileReceiver(req, res, next) {
 	form.parse(req, (err, fields, files) => {
-		fs.readFile(files.data.filepath, { encoding: "utf8" }).then((data) => {
-			return processFile(fields.name, data);
-		});
+		fs.readFile(files.data.filepath, { encoding: "utf8" }).then((data) =>
+			processFile(fields.name, data),
+		);
 	});
 	return res.end("");
 }
 
+// Page for viewing clones
 app.get("/", viewClones);
+
+// NEW: Page for viewing timing statistics (from TODO comment in code)
+app.get("/timers", (req, res) => {
+	if (allTimers.length === 0) {
+		return res.send(
+			'<h1>No timer data yet</h1><p><a href="/">Back to main page</a></p>',
+		);
+	}
+
+	const avgAll = allTimers.reduce((a, b) => a + b, 0) / allTimers.length;
+	const last10 = allTimers.slice(-10);
+	const last100 = allTimers.slice(-100);
+	const last1000 = allTimers.slice(-1000);
+
+	const avg10 = last10.reduce((a, b) => a + b, 0) / last10.length;
+	const avg100 = last100.reduce((a, b) => a + b, 0) / last100.length;
+	const avg1000 = last1000.reduce((a, b) => a + b, 0) / last1000.length;
+
+	const last10List = last10
+		.map(
+			(t, i) =>
+				`<li>File ${allTimers.length - 10 + i + 1}: ${t.toFixed(1)} µs</li>`,
+		)
+		.join("");
+
+	let page = `
+        <html>
+        <head><title>Processing Time Statistics</title></head>
+        <body>
+            <h1>Processing Time Statistics</h1>
+            <p><b>Total files processed:</b> ${allTimers.length}</p>
+            <p><b>Average (all):</b> ${avgAll.toFixed(2)} µs</p>
+            <p><b>Average (last 10):</b> ${avg10.toFixed(2)} µs</p>
+            <p><b>Average (last 100):</b> ${avg100.toFixed(2)} µs</p>
+            <p><b>Average (last 1000):</b> ${avg1000.toFixed(2)} µs</p>
+
+            <h3>Last 10 files:</h3>
+            <ul>${last10List}</ul>
+
+            <p><a href="/">Back to main page</a></p>
+        </body>
+        </html>
+    `;
+
+	res.send(page);
+});
 
 const server = app.listen(PORT, () => {
 	console.log("Listening for files on port", PORT);
@@ -101,6 +151,7 @@ function viewClones(req, res, next) {
 	page += "<BODY><H1>CodeStream Clone Detector</H1>\n";
 	page += "<P>" + getStatistics() + "</P>\n";
 	page += lastFileTimersHTML() + "\n";
+	page += '<p><a href="/timers">View detailed timing statistics</a></p>\n';
 	page += listClonesHTML() + "\n";
 	page += listProcessedFilesHTML() + "\n";
 	page += "</BODY></HTML>";
@@ -124,6 +175,14 @@ const URL = process.env.URL || "http://localhost:8080/";
 var lastFile = null;
 
 function maybePrintStatistics(file, cloneDetector, cloneStore) {
+	if (!file) return file;
+
+	let timers = Timer.getTimers(file);
+	if (timers && timers.total) {
+		allTimers.push(Number(timers.total / 1000n)); // µs till vanlig siffra
+		if (allTimers.length > 10000) allTimers.shift(); // håll listan max 10k lång
+	}
+
 	if (0 == cloneDetector.numberOfProcessedFiles % STATS_FREQ) {
 		console.log(
 			"Processed",
@@ -132,7 +191,6 @@ function maybePrintStatistics(file, cloneDetector, cloneStore) {
 			cloneStore.numberOfClones,
 			"clones.",
 		);
-		let timers = Timer.getTimers(file);
 		let str = "Timers for last file processed: ";
 		for (t in timers) {
 			str += t + ": " + timers[t] / 1000n + " µs ";

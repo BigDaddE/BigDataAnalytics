@@ -151,19 +151,6 @@ class CloneDetector {
 		let allFiles = this.#myFileStore.getAllFiles();
 		file.instances = file.instances || [];
 		for (let f of allFiles) {
-			// TODO implement these methods (or re-write the function matchDetect() to your own liking)
-			//
-			// Overall process:
-			//
-			// 1. Find all equal chunks in file and f. Represent each matching pair as a Clone.
-			//
-			// 2. For each Clone with endLine=x, merge it with Clone with endLine-1=x
-			//    remove the now redundant clone, rinse & repeat.
-			//    note that you may end up with several "root" Clones for each processed file f
-			//    if there are more than one clone between the file f and the current
-			//
-			// 3. If the same clone is found in several places, consolidate them into one Clone.
-			//
 			file = this.#filterCloneCandidates(file, f);
 			file = this.#expandCloneCandidates(file);
 			file = this.#consolidateClones(file);
